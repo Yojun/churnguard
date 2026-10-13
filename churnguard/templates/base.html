@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ChurnGuard 顧客流失分析{% endblock %}</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b2430;--mute:#667085;--line:#e4e7ec;--brand:#2f6fed;--brand-ink:#fff;
+--ok:#12805c;--okbg:#e3f5ed;--warn:#a15c00;--warnbg:#fff1d6;--bad:#b42318;--badbg:#fde7e4;--muteb:#eef0f3;--hi:#fdebea}
+@media (prefers-color-scheme:dark){:root{--bg:#12151a;--card:#1a1f27;--ink:#e7eaf0;--mute:#98a2b3;--line:#2b323d;--brand:#6a9bff;--brand-ink:#0b1220;
+--ok:#5fd3a3;--okbg:#12332a;--warn:#f5b14a;--warnbg:#3a2a0e;--bad:#ff8b7e;--badbg:#3d1b17;--muteb:#232933;--hi:#3d1b17}}
+*{box-sizing:border-box}a{color:var(--brand)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+header.top a.logo{font-weight:700;font-size:18px;color:var(--ink);text-decoration:none}
+h1{font-size:26px;margin:.2em 0}h2{font-size:17px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+.grid{display:grid;gap:12px}.k{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}.two{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.kpi .t{color:var(--mute);font-size:13px}.kpi .v{font-size:26px;font-weight:650;line-height:1.2}.kpi .s{color:var(--mute);font-size:12px}
+.btn{display:inline-block;white-space:nowrap;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 14px;font:inherit;cursor:pointer;text-decoration:none}
+.btn.p{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+input[type=text],input[type=number],input[type=url],textarea,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:150px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+label{display:block;font-size:13px;color:var(--mute);margin-bottom:3px}
+.err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+.note{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:8px 14px;margin-bottom:8px;font-size:14px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}.tabs button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;font:inherit}
+.tabs button.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.pane{display:none}.pane.on{display:block}
+.pill{display:inline-block;white-space:nowrap;border-radius:999px;padding:1px 10px;font-size:12px;font-weight:600}
+.pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.mute{background:var(--muteb);color:var(--mute)}
+.segbar{display:flex;height:22px;border-radius:8px;overflow:hidden;background:var(--muteb)}.segbar i{display:block}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mute)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+.bars{display:flex;align-items:flex-end;gap:5px;height:130px;margin-top:6px}.bars div.b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:11px;color:var(--mute)}
+.bars div.b i{display:block;width:100%;background:var(--brand);border-radius:4px 4px 0 0;min-height:2px}
+.bars.hist div.b i.hot{background:var(--bad)}
+.hbar{display:grid;grid-template-columns:minmax(120px,1.2fr) 2fr;gap:8px;align-items:center;margin:6px 0;font-size:13px}.hbar span.tr{background:var(--muteb);border-radius:6px;height:10px;display:block}.hbar span.tr i{display:block;height:10px;border-radius:6px;background:var(--brand)}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}th{color:var(--mute);font-weight:600;position:sticky;top:0;background:var(--card)}
+.scroll{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.rec{border-left:4px solid var(--line);padding:6px 12px;margin:10px 0}.rec.high{border-color:var(--bad)}.rec.mid{border-color:var(--warn)}.rec.info{border-color:var(--brand)}.rec b{display:block}
+.mute{color:var(--mute)}.small{font-size:13px}
+details>summary{cursor:pointer;font-weight:600}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.ans{white-space:pre-wrap;background:var(--bg);border-radius:10px;padding:12px;margin-top:10px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.chips button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:4px 12px;cursor:pointer;font:inherit;font-size:13px}
+.hero{padding:26px 0 8px}.hero h1{font-size:32px;line-height:1.3;margin:0 0 10px}.hero p{font-size:16px;max-width:680px}
+.steps{counter-reset:s}.steps .card{position:relative;padding-top:42px}.steps .card:before{counter-increment:s;content:counter(s);position:absolute;top:12px;left:16px;width:24px;height:24px;border-radius:50%;background:var(--brand);color:var(--brand-ink);font-weight:700;text-align:center;line-height:24px;font-size:13px}
+.ok-note{background:var(--okbg);color:var(--ok);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ink);margin:14px 0 0}.chk input{margin-top:4px}
+details.faq{border-bottom:1px solid var(--line);padding:10px 0}details.faq p{margin:8px 0 0;color:var(--mute);font-size:14px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="top"><a class="logo" href="{{ url_for('index') }}">🛡️ ChurnGuard · 顧客流失分析</a>
+<span class="mute small">{% if PASSWORD_ON %}<form method="post" action="{{ url_for('logout') }}" style="display:inline"><button class="btn" style="padding:3px 10px;font-size:13px">登出並清除資料</button></form>{% else %}資料僅暫存、閒置 {{ TTL_MIN }} 分鐘後自動刪除{% endif %}</span></header>
+{% block body %}{% endblock %}
+<footer class="mute small" style="margin-top:30px;text-align:center"><a href="{{ url_for('privacy') }}" style="color:inherit">隱私與使用說明</a>{% if CONTACT %} · 聯絡：{{ CONTACT }}{% endif %}</footer>
+</div></body></html>

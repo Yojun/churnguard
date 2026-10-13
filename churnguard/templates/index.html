@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="hero">
+  <h1>找出快流失的顧客，<br>一鍵產生喚醒推播名單</h1>
+  <p class="mute">上傳你的訂單資料，AI 會預測哪些顧客可能流失、說明原因、算出值得優先挽回的對象，並寫好每個人專屬的訊息。不用寫程式，幾分鐘就能看到結果。</p>
+</div>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+{% if notice %}<div class="ok-note">{{ notice }}</div>{% endif %}
+
+<form class="card" method="post" action="{{ url_for('start') }}" enctype="multipart/form-data">
+  <div class="tabs" id="tabs">
+    <button type="button" class="on" data-p="p-file">上傳檔案</button>
+    <button type="button" data-p="p-text">貼上資料</button>
+    {% if URL_ENABLED %}<button type="button" data-p="p-url">輸入連結</button>{% endif %}
+  </div>
+  <div class="pane on" id="p-file"><label>CSV 或 Excel（.xlsx），上限 {{ MAX_UPLOAD_MB }}MB — 每列是一筆訂單</label><input type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xls"></div>
+  <div class="pane" id="p-text"><label>可直接從 Excel／試算表複製貼上（第一列要是欄位名稱）</label>
+    <textarea name="text" placeholder="會員編號,訂單日期,訂單金額,商品類別&#10;A001,2026-01-05,1200,咖啡豆&#10;A001,2026-02-02,980,甜點&#10;A002,2026-01-11,450,茶飲"></textarea></div>
+  {% if URL_ENABLED %}<div class="pane" id="p-url"><label>Google 試算表連結（需設為「知道連結的人都能檢視」）{% if PUBLIC %}或 GitHub 檔案連結{% else %}，或任何 CSV／Excel 網址{% endif %}</label>
+    <input type="url" name="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>{% endif %}
+  <details style="margin-top:14px"><summary>選填：另外上傳顧客名單（姓名、聯絡管道、LINE ID）</summary>
+    <p class="mute small">訂單檔已經有姓名／管道欄位的話不用上傳。姓名只用來個人化訊息，不給也能分析。</p><input type="file" name="customers_file" accept=".csv,.tsv,.txt,.xlsx,.xls"></details>
+  {% if PUBLIC %}<label class="chk"><input type="checkbox" name="agree" value="1"><span>我確認有權處理這份資料，且已依個資法取得顧客同意，或資料已去識別化。<a href="{{ url_for('privacy') }}">了解資料如何處理</a></span></label>{% endif %}
+  <p style="margin:16px 0 0"><button class="btn p" type="submit">開始分析</button>
+  <button class="btn" type="submit" name="sample" value="1" formnovalidate>用範例資料試試（免勾選）</button>
+  <a class="btn" href="{{ url_for('sample_csv') }}">下載範例格式</a></p>
+</form>
+
+<h2 style="margin:26px 0 10px">運作方式</h2>
+<div class="grid k steps" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+  <div class="card"><b>丟進訂單資料</b><p class="mute small" style="margin:6px 0 0">每列一筆訂單，至少要有「顧客編號」和「訂單日期」。欄位名稱中英文皆可，系統自動對應。</p></div>
+  <div class="card"><b>AI 預測與診斷</b><p class="mute small" style="margin:6px 0 0">分析購買節奏與頻率變化，把顧客分成健康、預警、沉睡，並指出最影響流失的行為。</p></div>
+  <div class="card"><b>拿到可執行的名單</b><p class="mute small" style="margin:6px 0 0">依「預期保住營收」排序、符合預算的推播名單，附每個人專屬的優惠訊息，可下載 CSV。</p></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>資料需要什麼？</h2>
+  <p class="small">必填：<b>顧客編號</b>、<b>訂單日期</b>。有這些會更準：<b>訂單金額</b>、<b>商品類別</b>、<b>姓名</b>、<b>聯絡管道</b>（line／email／app）。建議至少 6 個月以上、數百位顧客的歷史訂單；資料較少時會自動改用規則式評分並提醒你。</p>
+  <p class="small mute">想保護個資？只留「顧客編號＋日期＋金額」就能分析，姓名、電話可以先拿掉。</p>
+</div>
+
+<div class="card">
+  <h2>常見問題</h2>
+  <details class="faq"><summary>我的資料會被保存嗎？</summary><p>只暫存在伺服器記憶體，閒置 {{ TTL_MIN }} 分鐘後自動刪除，也可以在結果頁按「立即刪除資料」。不會寫入資料庫，也不會拿去做其他用途。詳見<a href="{{ url_for('privacy') }}">隱私與使用說明</a>。</p></details>
+  <details class="faq"><summary>會真的發訊息給我的顧客嗎？</summary><p>不會。這個網站只產生推播名單與訊息文字，由你決定要不要用自己的 LINE、Email 或簡訊系統發送。</p></details>
+  <details class="faq"><summary>預測準不準？</summary><p>預測是依你的歷史資料做的統計估計，頁面會顯示模型指標；資料太少時會明說。它適合用來「排優先順序」，不是保證。</p></details>
+  <details class="faq"><summary>可以分析多大的資料？</summary><p>檔案上限 {{ MAX_UPLOAD_MB }}MB、{{ MAX_ROWS|num }} 列。更大的資料建議先篩選近 12–18 個月再上傳。</p></details>
+</div>
+<script>
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p));});
+</script>
+{% endblock %}

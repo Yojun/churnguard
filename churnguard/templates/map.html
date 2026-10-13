@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>確認欄位對應</h1>
+<p class="mute">來源：{{ job.source }}，共 {{ n_rows|num }} 列。系統已自動猜測，請確認或修正（標 * 為必填）。</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<form class="card" method="post" action="{{ url_for('run', jid=jid) }}">
+  <div class="form-grid">
+  {% for f in fields %}
+    <div><label>{{ labels[f] }}{% if f in required %} *{% endif %}</label>
+      <select name="map_{{ f }}"><option value="">（沒有這個欄位）</option>
+      {% for c in columns %}<option value="{{ c }}" {{ 'selected' if job.mapping[f]==c }}>{{ c }}</option>{% endfor %}</select></div>
+  {% endfor %}
+  </div>
+  <p style="margin-top:16px"><button class="btn p" type="submit">開始分析</button> <a class="btn" href="{{ url_for('index') }}">重新上傳</a></p>
+</form>
+<div class="card"><h2>資料預覽（前 8 列）</h2><div class="scroll"><table>
+<tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr>
+{% for r in preview %}<tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</table></div></div>
+{% endblock %}

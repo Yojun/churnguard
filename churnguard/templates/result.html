@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block body %}
+{% set seg = ins.seg %}{% set n = res.scored|length %}
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+  <div><h1>分析結果</h1><div class="mute small">來源：{{ job.source }} · 基準日 {{ res.now.date() }} · 閒置 {{ TTL_MIN }} 分鐘後自動刪除，請先下載需要的名單</div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn p" href="{{ url_for('download', jid=jid, which='plan') }}">下載推播名單</a>
+    <a class="btn" href="{{ url_for('download', jid=jid, which='scored') }}">下載全部顧客分數</a>
+    <a class="btn" href="{{ url_for('index') }}">換一份資料</a>
+    <form method="post" action="{{ url_for('delete', jid=jid) }}" onsubmit="return confirm('確定要立即刪除這份資料與分析結果嗎？')" style="display:inline"><button class="btn" type="submit">立即刪除資料</button></form>
+  </div>
+</div>
+
+{% for w in rep.warnings %}<div class="note">⚠ {{ w }}</div>{% endfor %}
+{% if m.method == 'rule' %}<div class="note">ℹ {{ m.note }}</div>{% endif %}
+
+<div class="card">
+  <h2>AI 結論</h2>
+  <p style="margin:0 0 6px">{{ ins.headline }}</p>
+  {% for r in ins.recs %}<div class="rec {{ r.level }}"><b>{{ r.title }}</b>{{ r.text }}</div>{% endfor %}
+</div>
+
+<div class="grid k" style="margin-bottom:16px">
+  <div class="card kpi"><div class="t">顧客數</div><div class="v">{{ n|num }}</div><div class="s">{{ res.n_orders|num }} 筆訂單</div></div>
+  <div class="card kpi"><div class="t">預警（還能挽回）</div><div class="v" style="color:var(--warn)">{{ seg.at_risk|num }}</div><div class="s">流失機率 ≥ {{ cfg.risk_threshold|pct }}</div></div>
+  <div class="card kpi"><div class="t">沉睡</div><div class="v" style="color:var(--bad)">{{ seg.dormant|num }}</div><div class="s">≥ {{ cfg.dormant_days }} 天未購買</div></div>
+  <div class="card kpi"><div class="t">每月營收風險（預估）</div><div class="v">{{ ins.monthly_risk|num }}</div><div class="s">預警客群：機率 × 客單價 × 月購買頻率</div></div>
+  <div class="card kpi"><div class="t">推播名單</div><div class="v">{{ ins.coverage.planned|num }}<span class="mute" style="font-size:14px"> / {{ ins.coverage.candidates|num }}</span></div><div class="s">預估成本 {{ ins.coverage.cost|num(1) }}／預算 {{ ins.coverage.budget|num }}</div></div>
+  <div class="card kpi"><div class="t">預測方式</div>
+    <div class="v" style="font-size:20px">{% if m.method=='ml' %}機器學習{% else %}規則式{% endif %}</div>
+    <div class="s">{% if m.method=='ml' %}AUC {{ m.auc }}（基準流失率 {{ m.base_churn_rate|pct }}）{% else %}資料量不足時的備援{% endif %}</div></div>
+</div>
+
+<div class="grid two">
+  <div class="card"><h2>顧客分群</h2>
+    <div class="segbar">
+      {% for k,c in [('healthy','var(--ok)'),('at_risk','var(--warn)'),('dormant','var(--bad)'),('lost','var(--mute)')] %}
+        <i style="width:{{ (seg[k]/n*100) if n else 0 }}%;background:{{ c }}" title="{{ SEG[k][0] }} {{ seg[k] }}"></i>{% endfor %}
+    </div>
+    <div class="legend">
+      {% for k,c in [('healthy','var(--ok)'),('at_risk','var(--warn)'),('dormant','var(--bad)'),('lost','var(--mute)')] %}
+        <span><span class="dot" style="background:{{ c }}"></span>{{ SEG[k][0] }} {{ seg[k]|num }}（{{ (seg[k]/n if n else 0)|pct }}）</span>{% endfor %}
+    </div>
+    <p class="small mute" style="margin-top:12px">累積消費占比：{% for k in ['healthy','at_risk','dormant','lost'] %}{{ SEG[k][0] }} {{ ((ins.seg_rev.get(k,0)/ins.total_rev) if ins.total_rev else 0)|pct }}{{ '、' if not loop.last }}{% endfor %}</p>
+  </div>
+  <div class="card"><h2>活躍顧客的流失機率分布</h2>
+    {% set mx = (ins.hist|map(attribute='count')|max) or 1 %}
+    <div class="bars hist">{% for h in ins.hist %}<div class="b" title="{{ h.label }}：{{ h.count }} 位"><span>{{ h.count }}</span><i class="{{ 'hot' if loop.index0 >= 6 }}" style="height:{{ h.count/mx*100 }}%"></i></div>{% endfor %}</div>
+    <div class="bars" style="height:auto;margin-top:2px"><div class="b" style="flex:1;align-items:flex-start">0%</div><div class="b" style="flex:1;align-items:flex-end">100%</div></div>
+  </div>
+
+  <div class="card"><h2>每月活躍顧客數（近 12 個月）</h2>
+    {% set mx2 = (ins.monthly|map(attribute='customers')|max) or 1 %}
+    <div class="bars">{% for x in ins.monthly %}<div class="b" title="{{ x.label }}：{{ x.customers }} 位、營收 {{ x.revenue|num }}"><span>{{ x.customers }}</span><i style="height:{{ x.customers/mx2*100 }}%"></i></div>{% endfor %}</div>
+    <div class="bars" style="height:auto;margin-top:2px">{% for x in ins.monthly %}<div class="b" style="font-size:10px">{{ x.label[2:] }}</div>{% endfor %}</div>
+    <p class="small mute">最後一個月可能尚未結束。</p></div>
+
+  <div class="card"><h2>哪些行為最能預測流失</h2>
+    {% if ins.drivers %}{% for d in ins.drivers %}<div class="hbar"><span>{{ d.label }}</span><span class="tr"><i style="width:{{ d.pct }}%"></i></span></div>{% endfor %}
+    <p class="small mute">排序依「打亂該特徵後模型準確度下降多少」。</p>
+    {% else %}<p class="mute small">規則式評分主要依「逾期倍數」（距上次購買天數 ÷ 平常購買間隔）與近期購買頻率變化判斷。累積足夠資料後會顯示模型學到的驅動因素。</p>{% endif %}</div>
+</div>
+
+{% if ins.categories %}
+<div class="card"><h2>各偏好品類的風險比例</h2>
+  {% for c in ins.categories %}<div class="hbar"><span>{{ c.name }}（{{ c.n }} 人）</span><span class="tr"><i style="width:{{ c.share*100 }}%;background:var(--warn)"></i></span></div>{% endfor %}
+  <p class="small mute">風險比例 = 預警＋沉睡人數 ÷ 該品類顧客數。</p></div>
+{% endif %}
+
+<div class="card"><h2>問 Claude</h2>
+  <p class="small mute" style="margin-top:0">只會傳送上面的彙總統計，不含姓名或任何個別顧客資料。{% if has_key %}（剩餘 {{ asks_left }} 次提問）{% endif %}</p>
+  <div class="chips">
+    {% for q in ['用三點總結這份資料最重要的發現','我只有一週，應該先做什麼？','為什麼這些顧客會流失？','預算有限時怎麼分配推播？'] %}<button type="button" class="q">{{ q }}</button>{% endfor %}
+  </div>
+  <div style="display:flex;gap:8px"><input type="text" id="q" placeholder="例如：甜點客群為什麼風險比較高？" maxlength="500"><button class="btn p" id="ask" type="button" {{ '' if has_key else 'disabled' }}>詢問</button></div>
+  {% if not has_key %}<p class="small mute">此功能目前未啟用（其餘分析不受影響）。</p>{% endif %}
+  <div class="ans" id="ans" hidden></div>
+</div>
+
+<div class="card"><h2>推播名單與個人化訊息</h2>
+  <p class="small mute" style="margin-top:0">依「預期保住營收」由高到低排序，顯示前 {{ plan_rows|length }} 筆（完整名單請下載）。此處只產生名單，不會對顧客發送任何訊息。</p>
+  <input type="text" id="flt" placeholder="搜尋姓名、分群、原因或訊息…" style="margin-bottom:10px">
+  <div class="scroll"><table id="tbl"><tr><th>顧客</th><th>分群</th><th>流失機率</th><th>未購買</th><th>原因</th><th>管道</th><th>個人化訊息</th></tr>
+  {% for r in plan_rows %}<tr><td>{{ r.name }}<div class="mute small">{{ r.customer_id }}</div></td>
+    <td><span class="pill {{ SEG[r.segment][1] }}">{{ SEG[r.segment][0] }}</span></td><td>{{ r.churn_prob|pct }}</td><td>{{ r.recency }} 天</td>
+    <td>{{ r.reason }}</td><td>{{ r.channel }}</td><td>{{ r.message }}</td></tr>{% endfor %}
+  {% if not plan_rows %}<tr><td colspan="7" class="mute">目前沒有需要推播的顧客。</td></tr>{% endif %}</table></div>
+</div>
+
+<form class="card" method="post" action="{{ url_for('run', jid=jid) }}">
+  <details><summary>調整設定後重新分析（欄位對應、門檻、預算、優惠文案）</summary>
+    <h2 style="margin-top:14px">欄位對應</h2>
+    <div class="form-grid">{% for f in fields %}<div><label>{{ labels[f] }}</label>
+      <select name="map_{{ f }}"><option value="">（沒有）</option>{% for c in columns %}<option value="{{ c }}" {{ 'selected' if job.mapping[f]==c }}>{{ c }}</option>{% endfor %}</select></div>{% endfor %}</div>
+    <h2 style="margin-top:18px">分析與預算</h2>
+    <div class="form-grid">
+      <div><label>流失風險門檻（0.05–0.99）</label><input type="number" step="0.05" name="risk_threshold" value="{{ cfg.risk_threshold }}"></div>
+      <div><label>幾天沒買算沉睡</label><input type="number" name="dormant_days" value="{{ cfg.dormant_days }}"></div>
+      <div><label>幾天沒買算已流失（不再推播）</label><input type="number" name="lost_days" value="{{ cfg.lost_days }}"></div>
+      <div><label>預測未來幾天是否流失</label><input type="number" name="horizon_days" value="{{ cfg.horizon_days }}"></div>
+      <div><label>預算上限</label><input type="number" name="daily_budget" value="{{ cfg.daily_budget|int }}"></div>
+      <div><label>單次最多推播人數</label><input type="number" name="max_messages_per_run" value="{{ cfg.max_messages_per_run }}"></div>
+    </div>
+    <h2 style="margin-top:18px">訊息與優惠</h2>
+    <div class="form-grid">
+      <div><label>品牌名稱</label><input type="text" name="brand" value="{{ cfg.brand }}"></div>
+      <div><label>預警客優惠文案</label><input type="text" name="at_risk_text" value="{{ cfg.offers.at_risk.text }}"></div>
+      <div><label>預警客優惠碼</label><input type="text" name="at_risk_code" value="{{ cfg.offers.at_risk.code }}"></div>
+      <div><label>沉睡客優惠文案</label><input type="text" name="dormant_text" value="{{ cfg.offers.dormant.text }}"></div>
+      <div><label>沉睡客優惠碼</label><input type="text" name="dormant_code" value="{{ cfg.offers.dormant.code }}"></div>
+    </div>
+    <p style="margin-top:16px"><button class="btn p" type="submit">重新分析</button></p>
+  </details>
+</form>
+
+<script>
+const flt=document.getElementById('flt');
+flt.oninput=()=>{const v=flt.value.trim().toLowerCase();document.querySelectorAll('#tbl tr').forEach((r,i)=>{if(i)r.style.display=r.textContent.toLowerCase().includes(v)?'':'none'})};
+const ans=document.getElementById('ans'),qi=document.getElementById('q'),btn=document.getElementById('ask');
+document.querySelectorAll('.q').forEach(b=>b.onclick=()=>{qi.value=b.textContent;ask()});
+btn.onclick=ask;qi.onkeydown=e=>{if(e.key==='Enter')ask()};
+async function ask(){const q=qi.value.trim();if(!q||btn.disabled)return;
+  ans.hidden=false;ans.textContent='思考中…';
+  try{const r=await fetch('{{ url_for("ask", jid=jid) }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const j=await r.json();ans.textContent=j.answer||j.error||'發生錯誤';}catch(e){ans.textContent='連線失敗，請稍後再試。'}}
+</script>
+{% endblock %}

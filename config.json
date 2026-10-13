@@ -1,0 +1,45 @@
+{
+  "brand": "好咖啡",
+  "horizon_days": 60,
+  "dormant_days": 120,
+  "lost_days": 365,
+  "default_channel": "line",
+  "risk_threshold": 0.6,
+  "cooldown_days": 14,
+  "daily_budget": 300.0,
+  "cost_per_message": {
+    "line": 0.5,
+    "email": 0.05,
+    "app": 0.0,
+    "sms": 0.8
+  },
+  "max_messages_per_run": 500,
+  "quiet_hours": [
+    22,
+    9
+  ],
+  "vip_percentile": 0.8,
+  "offers": {
+    "at_risk": {
+      "text": "專屬 9 折券",
+      "code": "STAY10",
+      "valid_days": 7
+    },
+    "dormant": {
+      "text": "回娘家 85 折 + 免運",
+      "code": "BACK15",
+      "valid_days": 14
+    },
+    "vip_bonus": {
+      "text": "再加贈指定商品一份"
+    }
+  },
+  "templates": {
+    "at_risk": "{name}，好一陣子沒見到您了！我們替您準備了{offer}（代碼 {code}，{valid_days} 天內有效），想念您喜歡的{category}～",
+    "dormant": "{name}，{brand}很想念您！回來看看新品吧，限時{offer}（代碼 {code}，{valid_days} 天內有效），{category}也補貨囉！"
+  },
+  "channel": "console",
+  "webhook_url": "",
+  "use_llm": false,
+  "llm_model": "claude-sonnet-5-5"
+}
