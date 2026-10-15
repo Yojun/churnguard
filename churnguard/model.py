@@ -74,7 +74,12 @@ def _reason(r):
 
 def score(model, orders, customers, now, risk_threshold=0.6, dormant_days=120, lost_days=365):
     """每位顧客的流失機率、分群（healthy 健康 / at_risk 預警 / dormant 沉睡 / lost 已流失）與原因。"""
-    f = build_features(orders, now)
+    return score_features(model, build_features(orders, now), customers, risk_threshold, dormant_days, lost_days)
+
+
+def score_features(model, f, customers, risk_threshold=0.6, dormant_days=120, lost_days=365):
+    """已有特徵表（逐筆訂單算出，或由會員摘要推算）時直接評分。"""
+    f = f.copy()
     f["churn_prob"] = model.predict_proba(f[FEATURES])[:, 1]
     f["segment"] = np.select(
         [f.recency >= lost_days, f.recency >= dormant_days, f.churn_prob >= risk_threshold],

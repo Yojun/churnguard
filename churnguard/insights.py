@@ -12,7 +12,7 @@ def build(scored, plan, n_candidates, orders, metrics, cfg, now):
     n = len(scored)
     seg = {k: 0 for k in SEG_LABEL}
     seg.update({k: int(v) for k, v in scored.segment.value_counts().items()})
-    total_rev = float(orders.amount.sum())
+    total_rev = float(orders.amount.sum()) if orders is not None else float(scored.monetary.sum())
     seg_rev = {k: float(v) for k, v in scored.groupby("segment").monetary.sum().items()}
 
     ar = scored[scored.segment == "at_risk"]
@@ -25,16 +25,7 @@ def build(scored, plan, n_candidates, orders, metrics, cfg, now):
     counts, _ = np.histogram(act.churn_prob, bins=10, range=(0, 1)) if len(act) else (np.zeros(10, int), None)
     hist = [{"label": f"{i * 10}–{i * 10 + 10}%", "count": int(c)} for i, c in enumerate(counts)]
 
-    m = (orders.assign(month=orders.order_date.dt.to_period("M"))
-         .groupby("month").agg(customers=("customer_id", "nunique"), revenue=("amount", "sum"), orders=("amount", "size")))
-    monthly = [{"label": str(i), "customers": int(r.customers), "revenue": float(r.revenue), "orders": int(r.orders)}
-               for i, r in m.tail(12).iterrows()]
-    partial = now.day < now.days_in_month
-    full = m.iloc[:-1] if partial and len(m) > 1 else m
-    trend_change = None
-    if len(full) >= 6:
-        recent, prev = full.customers.tail(3).mean(), full.customers.iloc[-6:-3].mean()
-        trend_change = float((recent - prev) / prev) if prev else None
+    monthly, trend_change = _monthly(orders, now) if orders is not None else ([], None)
 
     cat = (scored.assign(risky=scored.segment.isin(["at_risk", "dormant"]))
            .groupby("fav_category").agg(n=("customer_id", "size"), risky=("risky", "sum")))
@@ -73,20 +64,21 @@ def build(scored, plan, n_candidates, orders, metrics, cfg, now):
         recs.append({"level": "high", "title": "活躍顧客數正在下滑",
                      "text": f"最近 3 個月的月均活躍顧客數比前 3 個月少 {abs(trend_change):.0%}，除了喚醒舊客，也要檢視拉新與回購機制。"})
     if metrics["method"] == "rule":
-        recs.append({"level": "info", "title": "目前使用規則式評分",
-                     "text": metrics.get("note", "") + " 累積更多資料後，系統會自動改用機器學習模型。"})
+        pass        # 規則式的說明已在結果頁頂端以提示列顯示，不在建議裡重複
     elif metrics["auc"] is not None and metrics["auc"] < 0.65:
         recs.append({"level": "info", "title": "模型預測力偏低",
                      "text": f"AUC 只有 {metrics['auc']}，名單僅供排序參考；補充更多欄位（如商品、折扣、客服紀錄）通常能提升。"})
     if not recs:
         recs.append({"level": "info", "title": "目前沒有明顯風險", "text": "沒有顧客達到預警或沉睡條件，可維持現有經營並持續追蹤。"})
 
-    headline = (f"共分析 {n:,} 位顧客、{len(orders):,} 筆訂單（{orders.order_date.min().date()} ～ {orders.order_date.max().date()}）。"
+    scope = (f"{n:,} 位顧客、{len(orders):,} 筆訂單（{orders.order_date.min().date()} ～ {orders.order_date.max().date()}）"
+             if orders is not None else f"{n:,} 位顧客（會員摘要資料，基準日 {now.date()}）")
+    headline = (f"共分析 {scope}。"
                 f"其中預警 {seg['at_risk']:,} 位、沉睡 {seg['dormant']:,} 位、已流失 {seg['lost']:,} 位；"
                 f"風險顧客（預警＋沉睡）累積貢獻了 {risky_share:.0%} 的歷史營收。")
 
     facts = {
-        "customers": n, "orders": int(len(orders)), "segments": seg,
+        "customers": n, "orders": int(len(orders)) if orders is not None else int(scored.frequency.sum()), "segments": seg,
         "revenue_by_segment": {SEG_LABEL[k]: round(v) for k, v in seg_rev.items()},
         "total_revenue": round(total_rev), "risky_revenue_share": round(risky_share, 3),
         "estimated_monthly_revenue_at_risk": round(monthly_risk),
@@ -101,6 +93,20 @@ def build(scored, plan, n_candidates, orders, metrics, cfg, now):
     return {"headline": headline, "seg": seg, "seg_rev": seg_rev, "total_rev": total_rev, "monthly_risk": monthly_risk,
             "risky_share": risky_share, "hist": hist, "monthly": monthly, "categories": categories, "drivers": drivers,
             "recs": recs, "coverage": coverage, "vip_at_risk": int(len(vip_ar)), "facts": facts}
+
+
+def _monthly(orders, now):
+    m = (orders.assign(month=orders.order_date.dt.to_period("M"))
+         .groupby("month").agg(customers=("customer_id", "nunique"), revenue=("amount", "sum"), orders=("amount", "size")))
+    monthly = [{"label": str(i), "customers": int(r.customers), "revenue": float(r.revenue), "orders": int(r.orders)}
+               for i, r in m.tail(12).iterrows()]
+    partial = now.day < now.days_in_month
+    full = m.iloc[:-1] if partial and len(m) > 1 else m
+    trend_change = None
+    if len(full) >= 6:
+        recent, prev = full.customers.tail(3).mean(), full.customers.iloc[-6:-3].mean()
+        trend_change = float((recent - prev) / prev) if prev else None
+    return monthly, trend_change
 
 
 SYSTEM = ("你是資深的顧客留存分析師。只能依據提供的彙總資料回答，不要編造數字；若資料不足以回答，直接說明缺什麼。"

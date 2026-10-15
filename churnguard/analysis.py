@@ -13,3 +13,19 @@ def run(orders, customers, cfg, now=None):
     plan_df = campaign.plan(scored, cfg, None)
     ins = insights.build(scored, plan_df, n_candidates, orders, metrics, cfg, now)
     return {"now": now, "scored": scored, "plan": plan_df, "metrics": metrics, "insights": ins, "n_orders": int(len(orders))}
+
+
+SUMMARY_NOTE = ("這是會員摘要資料（每位顧客一列），沒有逐筆訂單，因此使用規則式評分：依「未購買天數 ÷ 平常購買間隔」判斷風險。"
+                "若能提供逐筆訂單，系統會用機器學習模型，通常更準。")
+
+
+def run_summary(features, customers, cfg, asof):
+    asof = pd.Timestamp(asof).normalize()
+    metrics = mdl._rule_metrics(SUMMARY_NOTE)
+    scored = mdl.score_features(mdl.HeuristicModel(), features, customers, cfg["risk_threshold"],
+                                cfg["dormant_days"], cfg.get("lost_days", 365))
+    n_candidates = int(scored.segment.isin(["at_risk", "dormant"]).sum())
+    plan_df = campaign.plan(scored, cfg, None)
+    ins = insights.build(scored, plan_df, n_candidates, None, metrics, cfg, asof)
+    return {"now": asof, "scored": scored, "plan": plan_df, "metrics": metrics, "insights": ins,
+            "n_orders": int(features.frequency.sum())}

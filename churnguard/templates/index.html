@@ -1,54 +1,162 @@
 {% extends "base.html" %}
 {% block body %}
+<style>
+.choose{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}
+.opt{display:block;text-align:left;border:2px solid var(--line);background:var(--card);color:var(--ink);border-radius:14px;padding:14px 16px;cursor:pointer;font:inherit;text-decoration:none;width:100%}
+.opt:hover{border-color:var(--brand)}.opt.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--card))}
+.opt b{display:block;font-size:16px}.opt span{display:block;color:var(--mute);font-size:13px;margin-top:2px}
+#gt{min-width:760px}#gt input,#gt select{padding:5px 6px;font-size:13px;border-radius:6px}#gt td{padding:3px;border-bottom:0}#gt th{white-space:nowrap}
+#gt td.x{width:28px}#gt td.x button{border:0;background:none;color:var(--mute);cursor:pointer;font-size:16px}
+.fmt{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.fmt table{font-size:12px}.fmt th,.fmt td{padding:4px 6px;white-space:nowrap}.fmt .tag{font-size:12px}
+.helpers{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0}
+</style>
+
 <div class="hero">
   <h1>找出快流失的顧客，<br>一鍵產生喚醒推播名單</h1>
-  <p class="mute">上傳你的訂單資料，AI 會預測哪些顧客可能流失、說明原因、算出值得優先挽回的對象，並寫好每個人專屬的訊息。不用寫程式，幾分鐘就能看到結果。</p>
+  <p class="mute">AI 預測哪些顧客可能流失、說明原因、算出值得優先挽回的對象，並寫好每個人專屬的訊息。<b>不一定要有完整訂單檔</b>——有會員名單、能手動輸入，甚至還沒有資料，都能開始。</p>
 </div>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 {% if notice %}<div class="ok-note">{{ notice }}</div>{% endif %}
 
-<form class="card" method="post" action="{{ url_for('start') }}" enctype="multipart/form-data">
-  <div class="tabs" id="tabs">
-    <button type="button" class="on" data-p="p-file">上傳檔案</button>
-    <button type="button" data-p="p-text">貼上資料</button>
-    {% if URL_ENABLED %}<button type="button" data-p="p-url">輸入連結</button>{% endif %}
+<div class="choose" id="choose">
+  <button type="button" class="opt on" data-g="data"><b>📄 我有資料檔</b><span>上傳 Excel／CSV、貼上，或貼 Google 試算表連結</span></button>
+  <button type="button" class="opt" data-g="grid"><b>✍️ 我想手動輸入</b><span>在網頁表格填，或直接從 Excel 複製貼上</span></button>
+  <a class="opt" href="{{ url_for('estimate') }}"><b>🎯 我還沒有資料</b><span>選幾個選項，快速估算回流與投報率</span></a>
+</div>
+
+<form class="card" method="post" action="{{ url_for('start') }}" enctype="multipart/form-data" id="mainform">
+  <input type="hidden" name="mode" id="mode" value="file">
+
+  <div id="g-data">
+    <div class="tabs" id="tabs">
+      <button type="button" class="on" data-m="file">上傳檔案</button>
+      <button type="button" data-m="text">貼上資料</button>
+      {% if URL_ENABLED %}<button type="button" data-m="url">輸入連結</button>{% endif %}
+    </div>
+    <div class="pane on" id="p-file"><label>Excel（.xlsx）或 CSV，上限 {{ MAX_UPLOAD_MB }}MB — 訂單明細或會員摘要都可以</label><input type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xls"></div>
+    <div class="pane" id="p-text"><label>可直接從 Excel／試算表複製貼上（第一列要是欄位名稱）</label>
+      <textarea name="text" placeholder="顧客編號,最近消費日,消費次數,累計消費金額&#10;A001,2026-09-30,12,15800&#10;A002,2026-05-18,3,2400"></textarea></div>
+    {% if URL_ENABLED %}<div class="pane" id="p-url"><label>Google 試算表連結（需設為「知道連結的人都能檢視」）{% if PUBLIC %}或 GitHub 檔案連結{% else %}，或任何 CSV／Excel 網址{% endif %}</label>
+      <input type="url" name="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>{% endif %}
+    <div class="helpers"><a class="btn" href="{{ url_for('template_xlsx') }}">⬇ 下載 Excel 填寫範本（有下拉選單與檢查）</a>
+      <a class="btn" href="{{ url_for('sample_csv') }}">⬇ 下載範例 CSV</a></div>
+    <details style="margin-top:14px"><summary>選填：另外上傳顧客名單（姓名、聯絡管道、LINE ID）</summary>
+      <p class="mute small">資料裡已經有姓名／管道欄位的話不用上傳。姓名只用來個人化訊息，不給也能分析。</p><input type="file" name="customers_file" accept=".csv,.tsv,.txt,.xlsx,.xls"></details>
   </div>
-  <div class="pane on" id="p-file"><label>CSV 或 Excel（.xlsx），上限 {{ MAX_UPLOAD_MB }}MB — 每列是一筆訂單</label><input type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xls"></div>
-  <div class="pane" id="p-text"><label>可直接從 Excel／試算表複製貼上（第一列要是欄位名稱）</label>
-    <textarea name="text" placeholder="會員編號,訂單日期,訂單金額,商品類別&#10;A001,2026-01-05,1200,咖啡豆&#10;A001,2026-02-02,980,甜點&#10;A002,2026-01-11,450,茶飲"></textarea></div>
-  {% if URL_ENABLED %}<div class="pane" id="p-url"><label>Google 試算表連結（需設為「知道連結的人都能檢視」）{% if PUBLIC %}或 GitHub 檔案連結{% else %}，或任何 CSV／Excel 網址{% endif %}</label>
-    <input type="url" name="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>{% endif %}
-  <details style="margin-top:14px"><summary>選填：另外上傳顧客名單（姓名、聯絡管道、LINE ID）</summary>
-    <p class="mute small">訂單檔已經有姓名／管道欄位的話不用上傳。姓名只用來個人化訊息，不給也能分析。</p><input type="file" name="customers_file" accept=".csv,.tsv,.txt,.xlsx,.xls"></details>
+
+  <div id="g-grid" class="pane">
+    <p class="small mute" style="margin-top:0">每位顧客一列。<b>只有「顧客編號」和「最近消費日」必填</b>，其他越完整越準。可以從 Excel 複製整張表，貼到第一格就會自動填滿。</p>
+    <div class="scroll" style="max-height:420px"><table id="gt"><thead><tr>
+      <th>顧客編號 *</th><th>最近消費日 *</th><th>消費次數</th><th>累計消費金額</th><th>首次消費日</th><th>姓名</th><th>偏好品類</th><th>聯絡管道</th><th></th></tr></thead><tbody></tbody></table></div>
+    <p style="margin:8px 0 0"><button class="btn" type="button" id="add1">＋ 新增一列</button> <button class="btn" type="button" id="add10">＋ 10 列</button>
+      <button class="btn" type="button" id="clear">清空</button> <span class="mute small" id="gcount"></span></p>
+    <textarea name="grid_text" id="grid_text" hidden></textarea>
+  </div>
+
   {% if PUBLIC %}<label class="chk"><input type="checkbox" name="agree" value="1"><span>我確認有權處理這份資料，且已依個資法取得顧客同意，或資料已去識別化。<a href="{{ url_for('privacy') }}">了解資料如何處理</a></span></label>{% endif %}
   <p style="margin:16px 0 0"><button class="btn p" type="submit">開始分析</button>
-  <button class="btn" type="submit" name="sample" value="1" formnovalidate>用範例資料試試（免勾選）</button>
-  <a class="btn" href="{{ url_for('sample_csv') }}">下載範例格式</a></p>
+  <button class="btn" type="submit" name="sample" value="1" formnovalidate>用範例資料試試{% if PUBLIC %}（免勾選）{% endif %}</button></p>
 </form>
+
+<h2 style="margin:26px 0 10px">資料長什麼樣子？兩種格式都可以</h2>
+<div class="fmt">
+  <div class="card"><b>會員摘要 <span class="pill ok tag">最簡單</span></b>
+    <p class="small mute" style="margin:4px 0 8px">每位顧客一列。多數會員系統／POS 都能匯出。</p>
+    <div class="scroll"><table><tr><th>顧客編號</th><th>最近消費日</th><th>消費次數</th><th>累計消費金額</th><th>首次消費日</th></tr>
+      <tr><td>A001</td><td>2026-09-30</td><td>12</td><td>15,800</td><td>2025-11-02</td></tr>
+      <tr><td>A002</td><td>2026-05-18</td><td>3</td><td>2,400</td><td>2026-01-20</td></tr></table></div>
+    <p class="small mute" style="margin:8px 0 0">最少只要「顧客編號＋最近消費日」。用規則式評分判斷風險。</p></div>
+  <div class="card"><b>訂單明細 <span class="pill warn tag">最準</span></b>
+    <p class="small mute" style="margin:4px 0 8px">每筆訂單一列。可用機器學習預測，並看出購買節奏的變化。</p>
+    <div class="scroll"><table><tr><th>顧客編號</th><th>訂單日期</th><th>訂單金額</th><th>商品類別</th></tr>
+      <tr><td>A001</td><td>2026-09-30</td><td>1,280</td><td>咖啡豆</td></tr>
+      <tr><td>A001</td><td>2026-09-12</td><td>960</td><td>甜點</td></tr></table></div>
+    <p class="small mute" style="margin:8px 0 0">建議至少 6 個月以上、數百位顧客。</p></div>
+</div>
+<p class="small mute">欄位名稱中英文都行（例：會員編號、下單日期、實付金額），系統會自動對應，認錯可以在下一步手動改。想保護個資？姓名、電話都不是必要的。</p>
 
 <h2 style="margin:26px 0 10px">運作方式</h2>
 <div class="grid k steps" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-  <div class="card"><b>丟進訂單資料</b><p class="mute small" style="margin:6px 0 0">每列一筆訂單，至少要有「顧客編號」和「訂單日期」。欄位名稱中英文皆可，系統自動對應。</p></div>
-  <div class="card"><b>AI 預測與診斷</b><p class="mute small" style="margin:6px 0 0">分析購買節奏與頻率變化，把顧客分成健康、預警、沉睡，並指出最影響流失的行為。</p></div>
+  <div class="card"><b>提供資料</b><p class="mute small" style="margin:6px 0 0">上傳、貼上、手動輸入都可以；沒有資料就先用選項估算。</p></div>
+  <div class="card"><b>AI 預測與診斷</b><p class="mute small" style="margin:6px 0 0">依購買節奏把顧客分成健康、預警、沉睡，並指出最影響流失的行為。</p></div>
   <div class="card"><b>拿到可執行的名單</b><p class="mute small" style="margin:6px 0 0">依「預期保住營收」排序、符合預算的推播名單，附每個人專屬的優惠訊息，可下載 CSV。</p></div>
 </div>
 
 <div class="card" style="margin-top:16px">
-  <h2>資料需要什麼？</h2>
-  <p class="small">必填：<b>顧客編號</b>、<b>訂單日期</b>。有這些會更準：<b>訂單金額</b>、<b>商品類別</b>、<b>姓名</b>、<b>聯絡管道</b>（line／email／app）。建議至少 6 個月以上、數百位顧客的歷史訂單；資料較少時會自動改用規則式評分並提醒你。</p>
-  <p class="small mute">想保護個資？只留「顧客編號＋日期＋金額」就能分析，姓名、電話可以先拿掉。</p>
-</div>
-
-<div class="card">
   <h2>常見問題</h2>
-  <details class="faq"><summary>我的資料會被保存嗎？</summary><p>只暫存在伺服器記憶體，閒置 {{ TTL_MIN }} 分鐘後自動刪除，也可以在結果頁按「立即刪除資料」。不會寫入資料庫，也不會拿去做其他用途。詳見<a href="{{ url_for('privacy') }}">隱私與使用說明</a>。</p></details>
+  <details class="faq"><summary>我的資料會被保存嗎？</summary><p>只暫存在伺服器記憶體，閒置 {{ TTL_MIN }} 分鐘後自動刪除，也可以在結果頁按「立即刪除資料」。不會寫入資料庫，也不會拿去做其他用途。「快速估算」則完全在你的瀏覽器內計算，不會傳到伺服器。詳見<a href="{{ url_for('privacy') }}">隱私與使用說明</a>。</p></details>
   <details class="faq"><summary>會真的發訊息給我的顧客嗎？</summary><p>不會。這個網站只產生推播名單與訊息文字，由你決定要不要用自己的 LINE、Email 或簡訊系統發送。</p></details>
-  <details class="faq"><summary>預測準不準？</summary><p>預測是依你的歷史資料做的統計估計，頁面會顯示模型指標；資料太少時會明說。它適合用來「排優先順序」，不是保證。</p></details>
+  <details class="faq"><summary>預測準不準？</summary><p>預測是依你的歷史資料做的統計估計，頁面會顯示使用的方法與限制；資料太少或只有會員摘要時，會改用規則式評分並明說。它適合用來「排優先順序」，不是保證。</p></details>
   <details class="faq"><summary>可以分析多大的資料？</summary><p>檔案上限 {{ MAX_UPLOAD_MB }}MB、{{ MAX_ROWS|num }} 列。更大的資料建議先篩選近 12–18 個月再上傳。</p></details>
 </div>
+
 <script>
-document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
-  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p));});
+const $ = id => document.getElementById(id);
+let mode = 'file';
+function setMode(m) {
+  mode = m; $('mode').value = m;
+  const grid = m === 'grid';
+  $('g-data').style.display = grid ? 'none' : '';
+  $('g-grid').classList.toggle('on', grid);
+  document.querySelectorAll('#choose .opt[data-g]').forEach(b => b.classList.toggle('on', (b.dataset.g === 'grid') === grid));
+  if (!grid) {
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+    document.querySelectorAll('#g-data .pane').forEach(p => p.classList.toggle('on', p.id === 'p-' + m));
+  }
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+document.querySelectorAll('#choose .opt[data-g]').forEach(b => b.onclick = () => setMode(b.dataset.g === 'grid' ? 'grid' : (mode === 'grid' ? 'file' : mode)));
+
+// ── 手動輸入表格 ──
+const COLS = ['id','last','cnt','total','first','name','cat','ch'];
+const HEAD = ['顧客編號','最近消費日','消費次數','累計消費金額','首次消費日','姓名','偏好品類','聯絡管道'];
+const PH = ['A001','2026-09-30','12','15800','2025-11-02','王小明','咖啡豆',''];
+const MAXR = 2000, tb = document.querySelector('#gt tbody');
+function addRow(vals, first) {
+  if (tb.rows.length >= MAXR) return null;
+  const tr = tb.insertRow();
+  COLS.forEach((c, i) => {
+    const td = tr.insertCell();
+    let el;
+    if (c === 'ch') { el = document.createElement('select'); ['', 'line', 'email', 'app', 'sms'].forEach(v => el.add(new Option(v || '（預設）', v))); }
+    else { el = document.createElement('input'); el.type = 'text'; if (first) el.placeholder = PH[i]; el.autocomplete = 'off'; }
+    el.dataset.c = c; if (vals && vals[i] != null) el.value = vals[i];
+    td.appendChild(el);
+  });
+  const x = tr.insertCell(); x.className = 'x'; x.innerHTML = '<button type="button" title="刪除這列">×</button>';
+  x.firstChild.onclick = () => { tr.remove(); count(); };
+  return tr;
+}
+function count() { const n = [...tb.rows].filter(r => r.querySelector('input').value.trim()).length; $('gcount').textContent = n ? '已填 ' + n + ' 列' : ''; }
+function reset(n) { tb.innerHTML = ''; for (let i = 0; i < n; i++) addRow(null, i === 0); count(); }
+reset(5);
+$('add1').onclick = () => addRow(null, false);
+$('add10').onclick = () => { for (let i = 0; i < 10; i++) addRow(null, false); };
+$('clear').onclick = () => reset(5);
+tb.addEventListener('input', count);
+tb.addEventListener('paste', e => {                    // 從 Excel 貼上多列多欄
+  const t = (e.clipboardData || window.clipboardData).getData('text');
+  if (!/[\t\n]/.test(t.trim())) return;
+  e.preventDefault();
+  let rows = t.replace(/\r/g, '').split('\n').filter(r => r.trim() !== '').map(r => r.split('\t'));
+  if (rows.length && /編號|id|customer|會員/i.test(rows[0][0] || '')) rows.shift();      // 略過標題列
+  const tr = e.target.closest('tr'); let r = [...tb.rows].indexOf(tr);
+  const c0 = Math.max(0, COLS.indexOf(e.target.dataset.c));
+  rows.forEach(vals => {
+    let row = tb.rows[r] || addRow(null, false); if (!row) return;
+    vals.forEach((v, j) => { const el = row.querySelectorAll('input,select')[c0 + j]; if (el) { v = v.trim(); if (el.tagName === 'SELECT') { if ([...el.options].some(o => o.value === v.toLowerCase())) el.value = v.toLowerCase(); } else el.value = v; } });
+    r++;
+  });
+  count();
+});
+const q = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+$('mainform').addEventListener('submit', e => {
+  if (mode !== 'grid' || (e.submitter && e.submitter.name === 'sample')) return;
+  const lines = [HEAD.join(',')];
+  [...tb.rows].forEach(r => { const v = [...r.querySelectorAll('input,select')].map(el => el.value.trim()); if (v.some(Boolean)) lines.push(v.map(q).join(',')); });
+  if (lines.length < 2) { e.preventDefault(); alert('請至少填一位顧客（顧客編號與最近消費日）。'); return; }
+  $('grid_text').value = lines.join('\n');
+});
 </script>
 {% endblock %}

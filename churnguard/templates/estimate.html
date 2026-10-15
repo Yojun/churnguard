@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}快速估算：喚醒推播值不值得做？{% endblock %}
+{% block body %}
+<style>
+.est{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:860px){.est{grid-template-columns:1fr}}
+.sticky{position:sticky;top:12px}@media(max-width:860px){.sticky{position:static}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fld{margin-bottom:12px}.fld .hint{font-size:12px;color:var(--mute);margin-top:2px}
+input[type=range]{width:100%;accent-color:var(--brand)}
+.sl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-bottom:10px}
+.sl b{font-weight:600}.sl .pc{font-variant-numeric:tabular-nums;text-align:right;min-width:3.2em}
+.sl .d{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px}
+.kpis .kpi{background:var(--bg);border-radius:10px;padding:10px 12px}
+.kpis .v{font-size:22px}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.bad2{background:var(--badbg);color:var(--bad);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.stack{display:flex;height:16px;border-radius:6px;overflow:hidden;margin:6px 0 4px}
+.stack i{display:block}
+.assump{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px}
+table.t td,table.t th{padding:6px 6px;font-size:12.5px}
+.scen{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin:8px 0}
+.scen div{background:var(--bg);border-radius:10px;padding:8px}
+.scen .t{font-size:12px;color:var(--mute)}.scen .v{font-weight:650;font-size:16px}
+.acts li{margin:6px 0}
+@media print{.noprint{display:none!important}.est{display:block}.sticky{position:static}}
+</style>
+
+<h1>快速估算：喚醒推播值不值得做？</h1>
+<p class="mute">還沒有整理好資料？選幾個選項、拉幾條滑桿，就能估出回流人數、營收、淨利與投報率，並告訴你預算該怎麼分。<b>所有計算都在你的瀏覽器內完成，不會上傳任何資料。</b></p>
+<div class="assump">⚠ 這是依你輸入的情境做的<b>估算，不是預測</b>。「回流率」是起始假設，不是統計數字；請先小規模測試，再用實際結果取代。要用真實資料精準找出名單，請<a href="{{ url_for('index') }}">上傳資料分析</a>。</div>
+
+<div class="est">
+<div>
+  <div class="card"><h2>1. 你的生意</h2>
+    <div class="fld"><label>產業（套用一組起始數字，可再自行修改）</label>
+      <select id="industry"></select>
+      <div class="hint">起始值只是方便你開始的假設，請改成你的實際數字。</div></div>
+    <div class="row2">
+      <div class="fld"><label>顧客總數</label><input type="number" id="customers" min="1" step="100" value="2000"></div>
+      <div class="fld"><label>平均客單價（元）</label><input type="number" id="aov" min="1" step="10" value="800"></div>
+      <div class="fld"><label>平均購買間隔（天）</label><input type="number" id="interval" min="1" max="730" value="45"><div class="hint">一位顧客平均幾天買一次</div></div>
+      <div class="fld"><label>毛利率 <b id="gm_v"></b></label><input type="range" id="gm" min="5" max="90" step="1" value="40"></div>
+    </div>
+  </div>
+
+  <div class="card"><h2>2. 顧客現況</h2>
+    <p class="small mute" style="margin-top:0">依「距離上次購買多久」把顧客分成四群，拉動滑桿設定各群大約占多少（會自動換算成 100%）。</p>
+    <div id="shares"></div>
+    <div class="stack" id="stack"></div>
+  </div>
+
+  <div class="card"><h2>3. 推播設定</h2>
+    <div class="row2">
+      <div class="fld"><label>推播管道</label><select id="channel"></select></div>
+      <div class="fld"><label>每則成本（元）</label><input type="number" id="cost" min="0" step="0.05" value="0.5"></div>
+      <div class="fld"><label>本次預算（元）</label><input type="number" id="budget" min="0" step="500" value="5000"></div>
+      <div class="fld"><label>優惠力度</label><select id="offer">
+        <option value="0">不給優惠（只提醒）</option><option value="5">95 折</option><option value="10" selected>9 折</option><option value="15">85 折</option><option value="20">8 折</option></select></div>
+    </div>
+    <details><summary>進階假設（回流率、回購次數）</summary>
+      <div class="row2" style="margin-top:10px">
+        <div class="fld"><label>轉淡客回流率 %（9 折時）</label><input type="number" id="r1" min="0" max="100" step="0.5" value="10"></div>
+        <div class="fld"><label>危險客回流率 %</label><input type="number" id="r2" min="0" max="100" step="0.5" value="5"></div>
+        <div class="fld"><label>沉睡客回流率 %</label><input type="number" id="r3" min="0" max="100" step="0.5" value="2"></div>
+        <div class="fld"><label>回流後 90 天內平均購買次數</label><input type="number" id="orders" min="0.5" max="20" step="0.5" value="1.5"></div>
+      </div>
+      <p class="small mute">預設回流率（轉淡 10%、危險 5%、沉睡 2%）只是保守的起始假設，不是統計數字；請以你過去活動的實際回應率取代。優惠只算在回流後的第 1 筆訂單。優惠力度越大，回流率假設會按比例調整（95 折 ×0.8、9 折 ×1、85 折 ×1.2、8 折 ×1.35、不給優惠 ×0.6）。</p>
+    </details>
+  </div>
+</div>
+
+<div class="sticky">
+  <div class="card" id="out">
+    <h2>估算結果</h2>
+    <div id="warn"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="scen" id="scen"></div>
+    <h2 style="margin-top:14px">各客群怎麼推</h2>
+    <div class="scroll" style="max-height:none"><table class="t" id="tbl"></table></div>
+    <h2 style="margin-top:14px">建議</h2>
+    <ul class="acts small" id="acts" style="padding-left:18px;margin:0"></ul>
+    <h2 style="margin-top:14px">訊息範例</h2>
+    <div class="small" id="msgs" style="background:var(--bg);border-radius:10px;padding:10px 12px"></div>
+    <p class="noprint" style="margin:14px 0 0;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" type="button" id="copy">複製結果摘要</button>
+      <button class="btn" type="button" onclick="window.print()">列印／存成 PDF</button>
+      <a class="btn p" href="{{ url_for('index') }}">用真實資料精準分析 →</a></p>
+  </div>
+</div>
+</div>
+
+<script>
+const IND = {
+  other:  {label:'其他',                interval:45,  aov:800,  gm:40},
+  cafe:   {label:'咖啡／茶飲／餐飲',    interval:14,  aov:180,  gm:60},
+  beauty: {label:'美妝保養',            interval:60,  aov:900,  gm:55},
+  fashion:{label:'服飾配件',            interval:90,  aov:1200, gm:50},
+  food:   {label:'食品／生鮮電商',      interval:30,  aov:700,  gm:30},
+  tech:   {label:'3C／家電',            interval:365, aov:3500, gm:20},
+  sub:    {label:'訂閱／會員制服務',    interval:30,  aov:500,  gm:70},
+  edu:    {label:'課程／教育',          interval:120, aov:3000, gm:65},
+  service:{label:'美容美髮／健身／服務業', interval:45, aov:1500, gm:60}
+};
+const CH = {line:{label:'LINE', cost:0.5}, email:{label:'Email', cost:0.05}, sms:{label:'簡訊', cost:0.8}, app:{label:'App 推播', cost:0}};
+const OFFER_F = {0:0.6, 5:0.8, 10:1.0, 15:1.2, 20:1.35};
+const OFFER_TXT = {0:'新品與回饋提醒', 5:'95 折優惠', 10:'9 折優惠', 15:'85 折優惠', 20:'8 折優惠'};
+const GROUPS = [
+  {id:'s0', name:'活躍', d:'還在平常的購買節奏內（未超過平常間隔）', def:55, color:'var(--ok)'},
+  {id:'s1', name:'轉淡', d:'超過平常間隔 1–2 倍沒買', def:20, color:'#d4a017'},
+  {id:'s2', name:'危險', d:'超過平常間隔 2–4 倍沒買', def:15, color:'#e0701b'},
+  {id:'s3', name:'沉睡', d:'超過平常間隔 4 倍以上沒買', def:10, color:'var(--bad)'}
+];
+const $ = id => document.getElementById(id);
+const num = (id, lo, hi, dflt) => { let v = parseFloat($(id).value); if (!isFinite(v)) v = dflt; return Math.min(hi, Math.max(lo, v)); };
+const fmt = n => Math.round(n).toLocaleString('zh-TW');
+const pct = (n, d=0) => (n*100).toFixed(d) + '%';
+
+// ── 建立選項 ──
+Object.entries(IND).forEach(([k,v]) => $('industry').add(new Option(v.label, k)));
+Object.entries(CH).forEach(([k,v]) => $('channel').add(new Option(v.label, k)));
+GROUPS.forEach(g => {
+  const el = document.createElement('div'); el.className = 'sl';
+  el.innerHTML = '<span><b>' + g.name + '</b></span><span class="pc" id="' + g.id + '_v"></span>' +
+    '<input type="range" id="' + g.id + '" min="0" max="100" step="1" value="' + g.def + '" style="grid-column:1/-1">' +
+    '<span class="d">' + g.d + '</span>';
+  $('shares').appendChild(el);
+});
+
+function applyIndustry() {
+  const p = IND[$('industry').value];
+  $('interval').value = p.interval; $('aov').value = p.aov; $('gm').value = p.gm; render();
+}
+function applyChannel() { $('cost').value = CH[$('channel').value].cost; render(); }
+
+// ── 計算 ──
+function readState() {
+  const sh = GROUPS.map(g => parseFloat($(g.id).value) || 0);
+  return {
+    customers: num('customers', 1, 1e7, 2000), aov: num('aov', 1, 1e6, 800), interval: num('interval', 1, 730, 45),
+    gm: num('gm', 1, 95, 40), shares: sh, cost: num('cost', 0, 1e4, 0.5), budget: num('budget', 0, 1e9, 5000),
+    offer: parseInt($('offer').value, 10),
+    r: [num('r1',0,100,18), num('r2',0,100,10), num('r3',0,100,4)], orders: num('orders', 0.5, 20, 1.5)
+  };
+}
+function calc(s, mult) {
+  mult = mult || 1;
+  const tot = s.shares.reduce((a,b) => a+b, 0) || 1;
+  const shares = s.shares.map(x => x/tot);
+  const f = OFFER_F[s.offer];
+  const profitPerRec = s.aov * (s.orders * s.gm - s.offer) / 100;      // 回流 1 人的毛利：優惠只扣在第 1 筆
+  const revPerRec = s.aov * (s.orders - s.offer/100);                  // 回流 1 人的營收（已扣優惠）
+  const groups = [1,2,3].map(i => {
+    const g = {name: GROUPS[i].name, n: Math.round(s.customers * shares[i]), base: s.r[i-1]};
+    g.rate = Math.min(0.6, g.base/100 * f * mult);
+    g.netPerMsg = g.rate * profitPerRec - s.cost;
+    return g;
+  });
+  let left = s.budget;
+  [...groups].sort((a,b) => b.netPerMsg - a.netPerMsg).forEach(g => {
+    if (g.netPerMsg <= 0 || g.n === 0) { g.reach = 0; g.verdict = 'skip'; return; }
+    const afford = s.cost > 0 ? Math.floor(left / s.cost) : Infinity;
+    g.reach = Math.min(g.n, afford);
+    left -= g.reach * s.cost;
+    g.verdict = g.reach >= g.n ? 'full' : (g.reach > 0 ? 'partial' : 'nobudget');
+  });
+  const T = {reach:0, rec:0, rev:0, gross:0, cost:0};
+  groups.forEach(g => {
+    g.rec = g.reach * g.rate; g.rev = g.rec * revPerRec; g.gross = g.rec * profitPerRec; g.spend = g.reach * s.cost;
+    g.net = g.gross - g.spend;
+    T.reach += g.reach; T.rec += g.rec; T.rev += g.rev; T.gross += g.gross; T.cost += g.spend;
+  });
+  T.net = T.gross - T.cost; T.roi = T.cost > 0 ? T.net / T.cost : null;
+  const need = groups.filter(g => g.netPerMsg > 0).reduce((a,g) => a + g.n * s.cost, 0);
+  const pool = groups.reduce((a,g) => a + g.n, 0) * s.aov * 30 / s.interval;
+  return {groups, T, profitPerRec, revPerRec, shares, need, pool};
+}
+
+// ── 顯示 ──
+let LAST = '';
+function render() {
+  const s = readState();
+  $('gm_v').textContent = s.gm + '%';
+  const tot = s.shares.reduce((a,b)=>a+b,0) || 1;
+  GROUPS.forEach((g,i) => $(g.id + '_v').textContent = pct(s.shares[i]/tot));
+  $('stack').innerHTML = GROUPS.map((g,i) => '<i title="' + g.name + '" style="width:' + (s.shares[i]/tot*100) + '%;background:' + g.color + '"></i>').join('');
+
+  const R = calc(s), lo = calc(s, 0.5), hi = calc(s, 1.5), T = R.T;
+  const warn = [];
+  if (R.profitPerRec <= 0) warn.push('目前「優惠力度」大於回購帶來的毛利，每回流一位顧客都會虧損——請降低優惠或確認毛利率。');
+  if (s.shares.reduce((a,b)=>a+b,0) === 0) warn.push('請至少讓一個客群的占比大於 0。');
+  if (T.reach === 0 && R.profitPerRec > 0) warn.push('以目前的假設與預算，沒有任何客群值得（或能夠）推播。');
+  $('warn').innerHTML = warn.map(w => '<div class="bad2">' + w + '</div>').join('');
+
+  const k = (t, v, sub, cls) => '<div class="kpi"><div class="t">' + t + '</div><div class="v ' + (cls||'') + '" >' + v + '</div><div class="s">' + (sub||'') + '</div></div>';
+  $('kpis').innerHTML =
+    k('觸及人數', fmt(T.reach), '預算使用 ' + fmt(T.cost) + ' 元') +
+    k('預期回流人數', fmt(T.rec), T.reach ? '回流率 ' + pct(T.rec / T.reach, 1) : '') +
+    k('預期營收', fmt(T.rev), '已扣優惠') +
+    k('預期淨利', fmt(T.net), '毛利扣掉優惠與推播成本', T.net >= 0 ? 'pos' : 'neg') +
+    k('投報率 ROI', T.roi === null ? '—' : (T.roi * 100).toFixed(0) + '%', '淨利 ÷ 推播成本', T.roi !== null && T.roi < 0 ? 'neg' : 'pos');
+  $('scen').innerHTML = [['保守（回流率 ×0.5）', lo], ['基準', R], ['樂觀（回流率 ×1.5）', hi]]
+    .map(([t, x]) => '<div><div class="t">' + t + '</div><div class="v ' + (x.T.net >= 0 ? 'pos' : 'neg') + '">' + fmt(x.T.net) + '</div><div class="t">預期淨利</div></div>').join('');
+
+  const VERD = {full:'全部推', partial:'預算不足，只推一部分', nobudget:'預算用完', skip:'不建議（每則虧損）'};
+  $('tbl').innerHTML = '<tr><th>客群</th><th>人數</th><th>回流率</th><th>建議觸及</th><th>預期回流</th><th>淨利</th><th>建議</th></tr>' +
+    R.groups.map(g => '<tr><td><b>' + g.name + '</b></td><td>' + fmt(g.n) + '</td><td>' + pct(g.rate, 1) + '</td><td>' + fmt(g.reach) + '</td><td>' +
+      g.rec.toFixed(1) + '</td><td class="' + (g.net >= 0 ? 'pos' : 'neg') + '">' + fmt(g.net) + '</td><td>' + VERD[g.verdict] + '</td></tr>').join('');
+
+  // 建議
+  const acts = [];
+  const ranked = [...R.groups].filter(g => g.netPerMsg > 0).sort((a,b) => b.netPerMsg - a.netPerMsg);
+  if (ranked.length) acts.push('<b>推播順序：</b>' + ranked.map(g => g.name).join(' → ') + '（依每則預期淨利由高到低；最划算的是「' + ranked[0].name + '」，每則預期淨利約 ' + ranked[0].netPerMsg.toFixed(1) + ' 元）。');
+  const nob = R.groups.filter(g => g.netPerMsg <= 0 && g.n > 0);
+  if (R.profitPerRec > 0 && nob.length) acts.push('<b>' + nob.map(g => g.name).join('、') + '客群</b>在目前假設下每則預期虧損，建議先不推，或改用成本更低的管道（如 Email、App 推播）。');
+  if (s.cost > 0 && R.need > s.budget) acts.push('<b>預算不足：</b>要涵蓋所有划算的客群約需 ' + fmt(R.need) + ' 元，目前預算 ' + fmt(s.budget) + ' 元，還差 ' + fmt(R.need - s.budget) + ' 元。');
+  else if (s.cost > 0 && s.budget > R.need + 1 && R.need > 0) acts.push('<b>預算有餘：</b>划算的客群全部觸及只需約 ' + fmt(R.need) + ' 元，多出的預算不必硬花。');
+  if (R.profitPerRec > 0) {
+    const be = s.cost / R.profitPerRec;
+    acts.push('<b>損益平衡點：</b>只要回流率 ≥ ' + pct(be, 1) + ' 就不虧錢；你的假設是 ' + R.groups.map(g => g.name + ' ' + pct(g.rate, 1)).join('、') + '。' +
+      (be > 0 ? '' : ''));
+  }
+  acts.push('<b>價值池：</b>轉淡＋危險＋沉睡共約 ' + fmt(R.groups.reduce((a,g)=>a+g.n,0)) + ' 位，若回到平常的購買節奏，每月約貢獻 ' + fmt(R.pool) + ' 元；不處理的話，這部分就是持續流失的風險。');
+  acts.push('<b>下一步：</b>先挑一小群（例如 200–500 人）實際推播並記錄回流率，用實測結果取代上面的假設，再決定是否擴大。');
+  $('acts').innerHTML = acts.map(a => '<li>' + a + '</li>').join('');
+
+  const o = OFFER_TXT[s.offer];
+  $('msgs').innerHTML =
+    '<div><b>轉淡客：</b>小明，好一陣子沒見到您了！我們替您準備了' + o + '，想念您喜歡的商品～</div>' +
+    '<div style="margin-top:6px"><b>沉睡客：</b>小明，我們很想念您！回來看看新品吧，限時' + o + '，歡迎再度光臨。</div>';
+
+  LAST = ['【快速估算結果】',
+    '顧客 ' + fmt(s.customers) + ' 人、客單價 ' + fmt(s.aov) + '、毛利率 ' + s.gm + '%、購買間隔 ' + s.interval + ' 天',
+    '預算 ' + fmt(s.budget) + ' 元（每則 ' + s.cost + ' 元）、優惠：' + o,
+    '觸及 ' + fmt(T.reach) + ' 人；預期回流 ' + T.rec.toFixed(0) + ' 人；預期營收 ' + fmt(T.rev) + '；預期淨利 ' + fmt(T.net) +
+      '；ROI ' + (T.roi === null ? '—' : (T.roi*100).toFixed(0) + '%'),
+    '情境淨利：保守 ' + fmt(lo.T.net) + ' ／ 基準 ' + fmt(T.net) + ' ／ 樂觀 ' + fmt(hi.T.net),
+    '＊以上為依輸入情境的估算，回流率為假設值，非預測。'].join('\n');
+  window.__est = {R, s};          // 供檢查用
+}
+
+document.querySelectorAll('input, select').forEach(el => el.addEventListener('input', render));
+$('industry').addEventListener('change', applyIndustry);
+$('channel').addEventListener('change', applyChannel);
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(LAST); $('copy').textContent = '已複製 ✓'; }
+  catch (e) { const t = document.createElement('textarea'); t.value = LAST; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); $('copy').textContent = '已複製 ✓'; } catch (e2) { $('copy').textContent = '請手動選取複製'; } t.remove(); }
+  setTimeout(() => $('copy').textContent = '複製結果摘要', 2000);
+};
+render();
+</script>
+{% endblock %}

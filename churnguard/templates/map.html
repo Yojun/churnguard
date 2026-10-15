@@ -1,16 +1,29 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>確認欄位對應</h1>
-<p class="mute">來源：{{ job.source }}，共 {{ n_rows|num }} 列。系統已自動猜測，請確認或修正（標 * 為必填）。</p>
+<p class="mute">來源：{{ job.source }}，共 {{ n_rows|num }} 列。系統已自動猜測，請確認或修正。</p>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
+<div class="note" style="background:var(--muteb);color:var(--ink)">
+  目前判斷為：<b>{{ '會員摘要（每列一位顧客）' if is_summary else '訂單明細（每列一筆訂單）' }}</b>。
+  有「訂單日期」就是訂單明細；有「最近消費日」與「消費次數」就是會員摘要。顧客編號一定要有。
+</div>
 <form class="card" method="post" action="{{ url_for('run', jid=jid) }}">
-  <div class="form-grid">
-  {% for f in fields %}
-    <div><label>{{ labels[f] }}{% if f in required %} *{% endif %}</label>
-      <select name="map_{{ f }}"><option value="">（沒有這個欄位）</option>
-      {% for c in columns %}<option value="{{ c }}" {{ 'selected' if job.mapping[f]==c }}>{{ c }}</option>{% endfor %}</select></div>
+  {% for gname, gfields in FIELD_GROUPS %}
+    <h2 style="margin-top:{{ '0' if loop.first else '18px' }}">{{ gname }}</h2>
+    <div class="form-grid">
+    {% for f in gfields %}
+      <div><label>{{ FIELD_LABELS[f] }}</label>
+        <select name="map_{{ f }}"><option value="">（沒有這個欄位）</option>
+        {% for c in columns %}<option value="{{ c }}" {{ 'selected' if job.mapping[f]==c }}>{{ c }}</option>{% endfor %}</select></div>
+    {% endfor %}
+    </div>
   {% endfor %}
-  </div>
+  <details style="margin-top:16px"><summary>進階：基準日、典型購買週期</summary>
+    <div class="form-grid">
+      <div><label>分析基準日（留空＝資料中最新日期）</label><input type="text" name="asof" value="{{ job.asof }}" placeholder="例如 2026-10-14"></div>
+      <div><label>典型購買週期（天）— 會員摘要沒有首次消費日時使用</label><input type="number" name="typical_cycle" value="{{ job.typical_cycle }}" min="7" max="365"></div>
+    </div>
+  </details>
   <p style="margin-top:16px"><button class="btn p" type="submit">開始分析</button> <a class="btn" href="{{ url_for('index') }}">重新上傳</a></p>
 </form>
 <div class="card"><h2>資料預覽（前 8 列）</h2><div class="scroll"><table>

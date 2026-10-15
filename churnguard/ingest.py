@@ -21,27 +21,47 @@ class DataError(Exception):
 
 FIELD_LABELS = {
     "customer_id": "顧客編號（必填）",
-    "order_date": "訂單日期（必填）",
-    "amount": "訂單金額",
+    "last_order_date": "最近消費日（會員摘要）",
+    "order_count": "消費次數（會員摘要）",
+    "total_spend": "累計消費金額（會員摘要）",
+    "first_order_date": "首次消費／加入日（會員摘要）",
+    "order_date": "訂單日期（訂單明細）",
+    "amount": "訂單金額（訂單明細）",
     "name": "顧客姓名",
     "channel": "聯絡管道",
-    "category": "商品類別",
+    "category": "商品／偏好類別",
     "line_user_id": "LINE User ID",
 }
-REQUIRED = ["customer_id", "order_date"]
+REQUIRED = ["customer_id", "order_date"]   # 會員摘要模式下，order_date 可由 last_order_date 取代
 FIELDS = list(FIELD_LABELS)
+FIELD_GROUPS = [
+    ("共同欄位", ["customer_id", "name", "channel", "category", "line_user_id"]),
+    ("訂單明細（每列一筆訂單）", ["order_date", "amount"]),
+    ("會員摘要（每列一位顧客）", ["last_order_date", "order_count", "total_spend", "first_order_date"]),
+]
 
 SYNONYMS = {
     "customer_id": ["customerid", "custid", "memberid", "userid", "clientid", "customer", "member",
                     "會員編號", "會員id", "會員", "顧客編號", "顧客id", "顧客", "客戶編號", "客戶id", "客戶",
                     "帳號", "手機", "電話", "email", "信箱", "id"],
+    "last_order_date": ["lastorderdate", "lastpurchasedate", "lastpurchase", "lastvisit", "lastorder",
+                        "最近消費日", "最後消費日", "最近購買日", "最後購買日", "最近消費日期", "最後消費日期",
+                        "最近購買日期", "最後購買日期", "最近一次消費", "最近一次購買", "最近來店", "最後來店",
+                        "上次消費", "上次購買", "上次來店"],
+    "order_count": ["ordercount", "orders", "numorders", "frequency", "purchasecount", "visits",
+                    "消費次數", "購買次數", "訂單數", "訂單筆數", "來店次數", "購買頻次", "交易次數"],
+    "total_spend": ["totalspend", "totalspent", "ltv", "lifetimevalue", "累計消費", "累積消費", "消費總額",
+                    "累計金額", "累積金額", "累計消費金額", "累積消費金額", "歷史消費", "總消費"],
+    "first_order_date": ["firstorderdate", "firstpurchase", "joindate", "signupdate", "registerdate",
+                         "首次消費日", "首次購買日", "首次消費日期", "首購日", "首購日期", "加入日期", "加入日",
+                         "註冊日期", "註冊日", "入會日期", "入會日", "開卡日"],
     "order_date": ["orderdate", "date", "datetime", "createdat", "purchasedate", "transactiondate",
                    "日期", "訂單日期", "交易日期", "購買日期", "下單日期", "下單時間", "消費日期", "時間"],
     "amount": ["amount", "total", "price", "revenue", "sales", "金額", "訂單金額", "消費金額",
                "實付", "實付金額", "總額", "總金額", "小計", "營收"],
     "name": ["name", "customername", "姓名", "顧客姓名", "會員姓名", "會員名稱", "客戶名稱", "暱稱"],
     "channel": ["channel", "contact", "推播管道", "聯絡管道", "管道", "偏好管道"],
-    "category": ["category", "product", "item", "品類", "商品類別", "類別", "商品", "品項", "產品"],
+    "category": ["category", "product", "item", "品類", "商品類別", "類別", "商品", "品項", "產品", "偏好品類", "常購品類"],
     "line_user_id": ["lineuserid", "lineid", "lineuid", "line"],
 }
 _CJK = re.compile(r"[一-鿿]")
@@ -95,12 +115,18 @@ def read_table_bytes(raw: bytes, filename: str = "") -> pd.DataFrame:
         raise DataError("檔案超過 20MB，請先篩選或拆分後再上傳。")
     if filename.lower().endswith((".xlsx", ".xlsm", ".xls")):
         try:
-            df = pd.read_excel(io.BytesIO(raw), dtype=object)
+            sheets = pd.read_excel(io.BytesIO(raw), dtype=object, sheet_name=None)
         except ImportError:
             raise DataError("伺服器缺少 openpyxl，無法讀取 Excel，請改用 CSV。")
         except Exception as e:  # noqa
             raise DataError(f"Excel 讀取失敗：{e}")
-        return _clean_frame(df)
+        cands = [(len(d.dropna(how="all")), n, d) for n, d in sheets.items() if str(n).strip() != "說明" and d.shape[1] >= 2]
+        if not cands:
+            raise DataError("Excel 裡沒有可用的資料表。")
+        n_rows, _, best = max(cands, key=lambda t: t[0])           # 多個工作表時取資料最多的一張
+        if n_rows == 0:
+            raise DataError("Excel 裡還沒有填寫任何資料（只有標題列）。請把資料填在「會員摘要」或「訂單明細」工作表後再上傳。")
+        return _clean_frame(best)
     return _read_text(_decode(raw))
 
 
@@ -282,8 +308,15 @@ def detect_mapping(df: pd.DataFrame) -> dict:
     return mapping
 
 
+def _has(df, mapping, f):
+    return bool(mapping.get(f)) and mapping[f] in df.columns
+
+
 def missing_required(mapping: dict, df: pd.DataFrame) -> list:
-    return [f for f in REQUIRED if not mapping.get(f) or mapping[f] not in df.columns]
+    miss = [] if _has(df, mapping, "customer_id") else ["customer_id"]
+    if not (_has(df, mapping, "order_date") or _has(df, mapping, "last_order_date")):
+        miss.append("order_date")
+    return miss
 
 
 # ───────────────────────── 清理成分析格式 ─────────────────────────
@@ -326,8 +359,8 @@ def prepare(df: pd.DataFrame, mapping: dict, default_channel: str = "line"):
     """回傳 (orders, customers, report)。"""
     miss = missing_required(mapping, df)
     if miss:
-        raise DataError("請指定必填欄位：" + "、".join(FIELD_LABELS[f].replace("（必填）", "") for f in miss))
-    rep = {"rows_in": int(len(df)), "warnings": [], "no_amount": False}
+        raise DataError("請指定必填欄位：" + "、".join({"customer_id": "顧客編號", "order_date": "訂單日期（或最近消費日）"}[f] for f in miss))
+    rep = {"rows_in": int(len(df)), "warnings": [], "no_amount": False, "mode": "orders"}
 
     cid = _ids(df[mapping["customer_id"]])
     date = _to_date(df[mapping["order_date"]])
@@ -383,3 +416,102 @@ def prepare_customers(df: pd.DataFrame, default_channel: str = "line") -> pd.Dat
         raise DataError("顧客名單找不到「顧客編號」欄位。")
     cid = _ids(df[mapping["customer_id"]])
     return _customers_from(df[cid.notna()].reset_index(drop=True), mapping, cid[cid.notna()].reset_index(drop=True), default_channel)
+
+
+# ───────────────────────── 會員摘要模式（每位顧客一列） ─────────────────────────
+def is_summary(df, mapping) -> bool:
+    """欄位有「最近消費日」，或每位顧客只有一列且有消費次數／累計金額 → 會員摘要。"""
+    if _has(df, mapping, "last_order_date"):
+        return True
+    if _has(df, mapping, "customer_id") and _has(df, mapping, "order_date") and (
+            _has(df, mapping, "order_count") or _has(df, mapping, "total_spend")):
+        return bool(df[mapping["customer_id"]].dropna().is_unique)
+    return False
+
+
+def parse_asof(text):
+    text = (text or "").strip()
+    if not text:
+        return None
+    d = pd.to_datetime(text, errors="coerce")
+    if pd.isna(d):
+        raise DataError("基準日格式不正確，請輸入像 2026-10-14 的日期。")
+    return d.normalize()
+
+
+def prepare_summary(df, mapping, default_channel="line", typical_cycle=45, asof=None):
+    """回傳 (features, customers, report)。沒有逐筆訂單，所以直接由摘要欄位推算購買節奏。"""
+    if not _has(df, mapping, "customer_id"):
+        raise DataError("請指定必填欄位：顧客編號")
+    last_col = mapping["last_order_date"] if _has(df, mapping, "last_order_date") else mapping.get("order_date")
+    if not last_col or last_col not in df.columns:
+        raise DataError("請指定必填欄位：最近消費日")
+    rep = {"rows_in": int(len(df)), "warnings": [], "no_amount": False, "mode": "summary"}
+
+    cid, last = _ids(df[mapping["customer_id"]]), _to_date(df[last_col])
+    if cid.isna().sum():
+        rep["warnings"].append(f"{int(cid.isna().sum()):,} 列沒有顧客編號，已略過。")
+    if (cid.notna() & last.isna()).sum():
+        rep["warnings"].append(f"{int((cid.notna() & last.isna()).sum()):,} 列的最近消費日無法辨識，已略過。")
+    keep = (cid.notna() & last.notna()).to_numpy()
+    if keep.sum() == 0:
+        raise DataError("沒有任何可用的列：最近消費日無法辨識或顧客編號為空。請確認欄位對應。")
+    d, cid, last = df[keep].reset_index(drop=True), cid[keep].reset_index(drop=True), last[keep].reset_index(drop=True)
+    dup = cid.duplicated(keep="last").to_numpy()
+    if dup.any():
+        rep["warnings"].append(f"有 {int(dup.sum()):,} 列顧客編號重複，已保留最後一列。")
+        d, cid, last = d[~dup].reset_index(drop=True), cid[~dup].reset_index(drop=True), last[~dup].reset_index(drop=True)
+
+    asof = pd.Timestamp(asof) if asof is not None else last.max()
+    cnt_col = _col(d, mapping, "order_count")
+    if cnt_col is not None:
+        freq = _to_number(cnt_col).fillna(1).clip(lower=1)
+    else:
+        freq = pd.Series(1.0, index=d.index)
+        rep["warnings"].append("沒有「消費次數」欄位：每位以 1 次計。")
+    spend_col = _col(d, mapping, "total_spend")
+    if spend_col is None:
+        spend_col = _col(d, mapping, "amount")
+    if spend_col is None:
+        monetary = freq.astype(float)
+        rep["no_amount"] = True
+        rep["warnings"].append("沒有「累計消費金額」欄位：以消費次數代替金額評估價值。")
+    else:
+        monetary = _to_number(spend_col).fillna(0).clip(lower=0)
+
+    recency = (asof - last).dt.days.clip(lower=0)
+    first_col = _col(d, mapping, "first_order_date")
+    if first_col is not None:
+        first = _to_date(first_col)
+        first = first.where(first.notna() & (first <= last), last)        # 缺漏或晚於最近消費日 → 視為與最近消費同日
+        span = (last - first).dt.days
+        gap = pd.Series(np.where((freq > 1) & (span > 0), span / (freq - 1).clip(lower=1), float(typical_cycle)), index=d.index)
+        tenure = recency + span
+    else:
+        gap = pd.Series(float(typical_cycle), index=d.index)
+        tenure = recency + (freq - 1) * typical_cycle
+        if cnt_col is None:
+            rep["warnings"].append(f"沒有首次消費日或消費次數，無法得知每位顧客自己的購買節奏，改用行業典型週期（約 {typical_cycle} 天）判斷。")
+        else:
+            rep["warnings"].append(f"沒有「首次消費／加入日」：無法算出每位顧客自己的購買間隔，改用行業典型週期（約 {typical_cycle} 天）判斷。")
+    gap = gap.clip(lower=1)
+
+    cat_col = _col(d, mapping, "category")
+    cat = (cat_col.astype(str).str.strip().replace({"": np.nan, "nan": np.nan, "None": np.nan}).fillna("精選商品")
+           if cat_col is not None else pd.Series("精選商品", index=d.index))
+    f = pd.DataFrame({
+        "recency": recency.astype(float), "frequency": freq.astype(float), "monetary": monetary.astype(float),
+        "avg_amount": (monetary / freq).astype(float), "avg_gap": gap.astype(float), "std_gap": 0.0,
+        "last_gap": gap.astype(float), "overdue_ratio": (recency / gap).astype(float),
+        "freq_30": 0.0, "freq_90": 0.0, "freq_prev90": 0.0, "trend": 0.0, "tenure": tenure.astype(float),
+        "fav_category": cat.values, "last_order": last.values,
+    })
+    f.index = pd.Index(cid.values, name="customer_id")   # 先以共同索引組表，再換成顧客編號（直接指定 index 會依標籤對齊而變成 NaN）
+    cust = _customers_from(d, mapping, cid, default_channel)
+
+    n = len(f)
+    if n < 30:
+        rep["warnings"].append(f"只有 {n} 位顧客，統計結果參考性低。")
+    rep.update(rows_used=n, n_customers=n, span_days=int((last.max() - last.min()).days),
+               date_min=last.min().date().isoformat(), date_max=last.max().date().isoformat(), asof=asof.date().isoformat())
+    return f, cust, rep

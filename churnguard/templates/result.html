@@ -21,14 +21,14 @@
 </div>
 
 <div class="grid k" style="margin-bottom:16px">
-  <div class="card kpi"><div class="t">顧客數</div><div class="v">{{ n|num }}</div><div class="s">{{ res.n_orders|num }} 筆訂單</div></div>
+  <div class="card kpi"><div class="t">顧客數</div><div class="v">{{ n|num }}</div><div class="s">{% if is_summary %}會員摘要・累計消費 {{ res.n_orders|num }} 次{% else %}{{ res.n_orders|num }} 筆訂單{% endif %}</div></div>
   <div class="card kpi"><div class="t">預警（還能挽回）</div><div class="v" style="color:var(--warn)">{{ seg.at_risk|num }}</div><div class="s">流失機率 ≥ {{ cfg.risk_threshold|pct }}</div></div>
   <div class="card kpi"><div class="t">沉睡</div><div class="v" style="color:var(--bad)">{{ seg.dormant|num }}</div><div class="s">≥ {{ cfg.dormant_days }} 天未購買</div></div>
   <div class="card kpi"><div class="t">每月營收風險（預估）</div><div class="v">{{ ins.monthly_risk|num }}</div><div class="s">預警客群：機率 × 客單價 × 月購買頻率</div></div>
   <div class="card kpi"><div class="t">推播名單</div><div class="v">{{ ins.coverage.planned|num }}<span class="mute" style="font-size:14px"> / {{ ins.coverage.candidates|num }}</span></div><div class="s">預估成本 {{ ins.coverage.cost|num(1) }}／預算 {{ ins.coverage.budget|num }}</div></div>
   <div class="card kpi"><div class="t">預測方式</div>
     <div class="v" style="font-size:20px">{% if m.method=='ml' %}機器學習{% else %}規則式{% endif %}</div>
-    <div class="s">{% if m.method=='ml' %}AUC {{ m.auc }}（基準流失率 {{ m.base_churn_rate|pct }}）{% else %}資料量不足時的備援{% endif %}</div></div>
+    <div class="s">{% if m.method=='ml' %}AUC {{ m.auc }}（基準流失率 {{ m.base_churn_rate|pct }}）{% elif is_summary %}會員摘要（無逐筆訂單）{% else %}資料量不足時的備援{% endif %}</div></div>
 </div>
 
 <div class="grid two">
@@ -49,11 +49,11 @@
     <div class="bars" style="height:auto;margin-top:2px"><div class="b" style="flex:1;align-items:flex-start">0%</div><div class="b" style="flex:1;align-items:flex-end">100%</div></div>
   </div>
 
-  <div class="card"><h2>每月活躍顧客數（近 12 個月）</h2>
+  {% if ins.monthly %}<div class="card"><h2>每月活躍顧客數（近 12 個月）</h2>
     {% set mx2 = (ins.monthly|map(attribute='customers')|max) or 1 %}
     <div class="bars">{% for x in ins.monthly %}<div class="b" title="{{ x.label }}：{{ x.customers }} 位、營收 {{ x.revenue|num }}"><span>{{ x.customers }}</span><i style="height:{{ x.customers/mx2*100 }}%"></i></div>{% endfor %}</div>
     <div class="bars" style="height:auto;margin-top:2px">{% for x in ins.monthly %}<div class="b" style="font-size:10px">{{ x.label[2:] }}</div>{% endfor %}</div>
-    <p class="small mute">最後一個月可能尚未結束。</p></div>
+    <p class="small mute">最後一個月可能尚未結束。</p></div>{% endif %}
 
   <div class="card"><h2>哪些行為最能預測流失</h2>
     {% if ins.drivers %}{% for d in ins.drivers %}<div class="hbar"><span>{{ d.label }}</span><span class="tr"><i style="width:{{ d.pct }}%"></i></span></div>{% endfor %}
@@ -82,22 +82,26 @@
   <input type="text" id="flt" placeholder="搜尋姓名、分群、原因或訊息…" style="margin-bottom:10px">
   <div class="scroll"><table id="tbl"><tr><th>顧客</th><th>分群</th><th>流失機率</th><th>未購買</th><th>原因</th><th>管道</th><th>個人化訊息</th></tr>
   {% for r in plan_rows %}<tr><td>{{ r.name }}<div class="mute small">{{ r.customer_id }}</div></td>
-    <td><span class="pill {{ SEG[r.segment][1] }}">{{ SEG[r.segment][0] }}</span></td><td>{{ r.churn_prob|pct }}</td><td>{{ r.recency }} 天</td>
+    <td><span class="pill {{ SEG[r.segment][1] }}">{{ SEG[r.segment][0] }}</span></td><td>{{ r.churn_prob|pct }}</td><td>{{ r.recency|int }} 天</td>
     <td>{{ r.reason }}</td><td>{{ r.channel }}</td><td>{{ r.message }}</td></tr>{% endfor %}
   {% if not plan_rows %}<tr><td colspan="7" class="mute">目前沒有需要推播的顧客。</td></tr>{% endif %}</table></div>
 </div>
 
 <form class="card" method="post" action="{{ url_for('run', jid=jid) }}">
   <details><summary>調整設定後重新分析（欄位對應、門檻、預算、優惠文案）</summary>
-    <h2 style="margin-top:14px">欄位對應</h2>
-    <div class="form-grid">{% for f in fields %}<div><label>{{ labels[f] }}</label>
+    {% for gname, gfields in FIELD_GROUPS %}
+    <h2 style="margin-top:{{ '14px' if loop.first else '18px' }}">欄位對應：{{ gname }}</h2>
+    <div class="form-grid">{% for f in gfields %}<div><label>{{ FIELD_LABELS[f] }}</label>
       <select name="map_{{ f }}"><option value="">（沒有）</option>{% for c in columns %}<option value="{{ c }}" {{ 'selected' if job.mapping[f]==c }}>{{ c }}</option>{% endfor %}</select></div>{% endfor %}</div>
+    {% endfor %}
     <h2 style="margin-top:18px">分析與預算</h2>
     <div class="form-grid">
       <div><label>流失風險門檻（0.05–0.99）</label><input type="number" step="0.05" name="risk_threshold" value="{{ cfg.risk_threshold }}"></div>
       <div><label>幾天沒買算沉睡</label><input type="number" name="dormant_days" value="{{ cfg.dormant_days }}"></div>
       <div><label>幾天沒買算已流失（不再推播）</label><input type="number" name="lost_days" value="{{ cfg.lost_days }}"></div>
-      <div><label>預測未來幾天是否流失</label><input type="number" name="horizon_days" value="{{ cfg.horizon_days }}"></div>
+      <div><label>預測未來幾天是否流失（訂單明細）</label><input type="number" name="horizon_days" value="{{ cfg.horizon_days }}"></div>
+      <div><label>分析基準日（留空＝資料最新日期）</label><input type="text" name="asof" value="{{ job.asof }}" placeholder="例如 2026-10-14"></div>
+      <div><label>典型購買週期（天，會員摘要用）</label><input type="number" name="typical_cycle" value="{{ job.typical_cycle }}" min="7" max="365"></div>
       <div><label>預算上限</label><input type="number" name="daily_budget" value="{{ cfg.daily_budget|int }}"></div>
       <div><label>單次最多推播人數</label><input type="number" name="max_messages_per_run" value="{{ cfg.max_messages_per_run }}"></div>
     </div>

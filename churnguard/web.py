@@ -17,7 +17,7 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import analysis, campaign, data, ingest, insights
+from . import analysis, campaign, data, ingest, insights, sheet_template
 
 
 def _env_int(key, default):
@@ -91,7 +91,8 @@ def _ai_ok():
 @app.context_processor
 def _ctx():
     return dict(PUBLIC=PUBLIC, CONTACT=CONTACT, TTL_MIN=TTL // 60, URL_ENABLED=ENABLE_URL,
-                PASSWORD_ON=bool(PASSWORD), MAX_UPLOAD_MB=MAX_UPLOAD_MB, MAX_ROWS=MAX_ROWS, RATE_ANALYZE=RATE_ANALYZE)
+                PASSWORD_ON=bool(PASSWORD), MAX_UPLOAD_MB=MAX_UPLOAD_MB, MAX_ROWS=MAX_ROWS, RATE_ANALYZE=RATE_ANALYZE,
+                FIELD_GROUPS=ingest.FIELD_GROUPS, FIELD_LABELS=ingest.FIELD_LABELS)
 
 
 def _limited(bucket, limit, window=3600):
@@ -170,7 +171,8 @@ def _new_job(df, source, df_c=None):
             JOBS.pop(min(JOBS, key=lambda k: JOBS[k]["last"]))
         jid = secrets.token_urlsafe(12)
         JOBS[jid] = {"df": df, "df_c": df_c, "source": source, "mapping": ingest.detect_mapping(df), "sid": sid,
-                     "last": time.time(), "result": None, "report": None, "cfg": _web_cfg(), "asks": 0}
+                     "last": time.time(), "result": None, "report": None, "cfg": _web_cfg(), "asks": 0,
+                     "typical_cycle": 45, "asof": ""}
     return jid
 
 
@@ -182,17 +184,38 @@ def _job(jid):
     return j
 
 
+def _clamp_int(v, lo, hi, default):
+    try:
+        return min(hi, max(lo, int(float(v))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _execute(job, form):
     cfg = cfg_from_form(form)
     if any(k.startswith("map_") for k in form):
         job["mapping"] = {f: (form.get("map_" + f) or None) for f in ingest.FIELDS}
+    if "typical_cycle" in form:
+        job["typical_cycle"] = _clamp_int(form.get("typical_cycle"), 7, 365, 45)
+    if "asof" in form:
+        job["asof"] = (form.get("asof") or "").strip()
+    asof = ingest.parse_asof(job["asof"])
     if not _SEM.acquire(timeout=20):
         raise ingest.DataError("目前使用人數較多，請稍後再試。")
     try:
-        orders, customers, rep = ingest.prepare(job["df"], job["mapping"], cfg["default_channel"])
-        if job["df_c"] is not None:
-            customers = ingest.merge_customers(customers, ingest.prepare_customers(job["df_c"], cfg["default_channel"]))
-        job.update(result=analysis.run(orders, customers, cfg), report=rep, cfg=cfg)
+        df, mapping = job["df"], job["mapping"]
+        extra = ingest.prepare_customers(job["df_c"], cfg["default_channel"]) if job["df_c"] is not None else None
+        if ingest.is_summary(df, mapping):             # 會員摘要：每位顧客一列
+            feats, customers, rep = ingest.prepare_summary(df, mapping, cfg["default_channel"], job["typical_cycle"], asof)
+            if extra is not None:
+                customers = ingest.merge_customers(customers, extra)
+            result = analysis.run_summary(feats, customers, cfg, rep["asof"])
+        else:                                          # 訂單明細：每筆訂單一列
+            orders, customers, rep = ingest.prepare(df, mapping, cfg["default_channel"])
+            if extra is not None:
+                customers = ingest.merge_customers(customers, extra)
+            result = analysis.run(orders, customers, cfg, now=asof)
+        job.update(result=result, report=rep, cfg=cfg)
     except ingest.DataError:
         raise
     except Exception:  # noqa
@@ -206,7 +229,8 @@ def _render_map(jid, job, error=None):
     df = job["df"]
     return render_template("map.html", jid=jid, job=job, columns=list(df.columns), fields=ingest.FIELDS,
                            labels=ingest.FIELD_LABELS, required=ingest.REQUIRED, error=error,
-                           preview=df.head(8).fillna("").astype(str).values.tolist(), n_rows=len(df))
+                           preview=df.head(8).fillna("").astype(str).values.tolist(), n_rows=len(df),
+                           is_summary=ingest.is_summary(df, job["mapping"]))
 
 
 def data_sample():
@@ -297,9 +321,22 @@ def start():
         if sample:
             df, source = data_sample(), "範例資料（模擬）"
         else:
-            df, source = ingest.load_source(request.files.get("file"), request.form.get("text", ""),
-                                            request.form.get("url", "") if ENABLE_URL else "")
-            cf = request.files.get("customers_file")
+            mode = request.form.get("mode", "")
+            f, text, url = request.files.get("file"), request.form.get("text", ""), request.form.get("url", "")
+            if mode == "grid":
+                f, url, text = None, "", request.form.get("grid_text", "")
+                if not text.strip():
+                    raise ingest.DataError("請至少填一位顧客（顧客編號與最近消費日）。")
+            elif mode == "text":
+                f, url = None, ""
+            elif mode == "url":
+                f, text = None, ""
+            elif mode == "file":
+                text, url = "", ""
+            df, source = ingest.load_source(f, text, url if ENABLE_URL else "")
+            if mode == "grid":
+                source = "手動輸入的表格"
+            cf = request.files.get("customers_file") if mode in ("", "file") else None
             df_c = ingest.read_table_bytes(cf.read(), cf.filename) if cf and cf.filename else None
         if len(df) > MAX_ROWS:
             raise ingest.DataError(f"資料超過 {MAX_ROWS:,} 列的上限，請先篩選（例如只留近 12–18 個月）再上傳。")
@@ -314,6 +351,18 @@ def start():
         return redirect(url_for("result", jid=jid))
     except ingest.DataError as e:
         return render_template("index.html", error=str(e)), 400
+
+
+@app.get("/estimate")
+def estimate():
+    return render_template("estimate.html")
+
+
+@app.get("/template.xlsx")
+def template_xlsx():
+    return Response(sheet_template.build_template(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=churnguard_template.xlsx"})
 
 
 @app.get("/sample.csv")
@@ -350,7 +399,8 @@ def result(jid):
     return render_template("result.html", jid=jid, job=job, res=res, ins=res["insights"], m=res["metrics"],
                            cfg=job["cfg"], rep=job["report"], plan_rows=res["plan"][cols].head(300).to_dict("records"),
                            SEG=SEG, columns=list(job["df"].columns), fields=ingest.FIELDS, labels=ingest.FIELD_LABELS,
-                           has_key=_ai_ok(), asks_left=max(0, ASK_PER_JOB - job["asks"]))
+                           has_key=_ai_ok(), asks_left=max(0, ASK_PER_JOB - job["asks"]),
+                           is_summary=(job["report"] or {}).get("mode") == "summary")
 
 
 @app.post("/job/<jid>/delete")
